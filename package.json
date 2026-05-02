@@ -1,0 +1,56 @@
+{
+  "name": "@venkatesulu-settybalija/analytics-demo-app",
+  "version": "1.0.0",
+  "description": "Local-first analytics lab demo (Express + static UI) for portfolio E2E projects — feeds, dashboard KPIs, SQL Lab lite, roles.",
+  "license": "MIT",
+  "author": "Venkatesulu Settybalija",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/venkatesulu-settybalija/analytics-demo-app.git"
+  },
+  "bugs": {
+    "url": "https://github.com/venkatesulu-settybalija/analytics-demo-app/issues"
+  },
+  "homepage": "https://github.com/venkatesulu-settybalija/analytics-demo-app#readme",
+  "keywords": [
+    "express",
+    "analytics",
+    "dashboard",
+    "demo",
+    "e2e",
+    "testing"
+  ],
+  "type": "module",
+  "main": "./dist/server.js",
+  "types": "./dist/server.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    }
+  },
+  "bin": {
+    "analytics-demo-app": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc && node scripts/copy-public.mjs",
+    "start": "node dist/cli.js",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2"
+  }
+}
