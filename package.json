@@ -43,6 +43,7 @@
   "scripts": {
     "build": "tsc && node scripts/copy-public.mjs",
     "start": "node dist/cli.js",
+    "prepare": "npm run build",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {

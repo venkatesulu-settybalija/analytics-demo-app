@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Feed Editor</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 24px; }
+      table, th, td { border: 1px solid #ddd; border-collapse: collapse; padding: 8px; }
+      nav a { margin-right: 12px; }
+      .hidden { display: none !important; }
+      .muted { max-width: 420px; color: #444; }
+      .err { color: #b42318; font-size: 14px; margin-top: 6px; }
+      .banner { padding: 8px 12px; background: #f0f4ff; border: 1px solid #cfe0ff; margin: 16px 0; }
+      td input { width: 180px; }
+    </style>
+  </head>
+  <body>
+    <h1>Feed Editor</h1>
+    <nav>
+      <a href="/">Login</a>
+      <a href="/dashboard.html">Dashboard</a>
+      <a href="/explore.html">Explore</a>
+    </nav>
+    <p id="viewer-readonly" class="banner hidden muted" data-testid="viewer-readonly-banner"></p>
+
+    <div id="feed-new-panel" data-testid="feed-new-panel">
+      <h2>Add feed</h2>
+      <label>Source name <input id="new-feed-source" data-testid="new-feed-source-input" maxlength="72" /></label>
+      <button type="button" id="new-feed-submit" data-testid="new-feed-submit">Add feed</button>
+      <p id="feed-form-error" class="err hidden" data-testid="feed-form-error"></p>
+    </div>
+
+    <h2>Existing feeds</h2>
+    <button id="refresh-btn" data-testid="feed-refresh">Refresh</button>
+    <table>
+      <thead>
+        <tr><th>Source</th><th>Enabled</th><th>Actions</th></tr>
+      </thead>
+      <tbody id="feed-table"></tbody>
+    </table>
+
+    <script>
+      const tableBody = document.getElementById("feed-table");
+
+      function bearerHeaders() {
+        const token = localStorage.getItem("authToken");
+        return { Authorization: `Bearer ${token}` };
+      }
+
+      async function loadRole() {
+        const me = await fetch("/api/auth/me", { headers: bearerHeaders() });
+        if (!me.ok) return { viewer: false };
+        const json = await me.json();
+        return { viewer: json.role === "viewer" };
+      }
+
+      async function load() {
+        const { viewer } = await loadRole();
+        const viewerBanner = document.getElementById("viewer-readonly");
+        const editorPanel = document.getElementById("feed-new-panel");
+        if (viewer) {
+          viewerBanner.textContent = "Signed in as viewer — editing is disabled.";
+          viewerBanner.classList.remove("hidden");
+          editorPanel.classList.add("hidden");
+        } else {
+          viewerBanner.classList.add("hidden");
+          editorPanel.classList.remove("hidden");
+        }
+
+        const res = await fetch("/api/feed", { headers: bearerHeaders() });
+        const data = await res.json();
+
+        tableBody.replaceChildren();
+
+        data.items.forEach((item) => {
+          const tr = document.createElement("tr");
+          tr.setAttribute("data-testid", `feed-row-${item.id}`);
+
+          const tdSrc = document.createElement("td");
+          const inp = document.createElement("input");
+          inp.dataset.testid = `feed-source-input-${item.id}`;
+          inp.value = item.source;
+          inp.disabled = viewer;
+          tdSrc.appendChild(inp);
+
+          const tdEn = document.createElement("td");
+          tdEn.dataset.testid = `feed-enabled-${item.id}`;
+          tdEn.textContent = String(item.enabled);
+
+          const tdAct = document.createElement("td");
+          const editErr = document.createElement("p");
+          editErr.className = "err hidden";
+          editErr.dataset.testid = `feed-edit-error-${item.id}`;
+          tdAct.appendChild(editErr);
+
+          if (!viewer) {
+            const saveBtn = document.createElement("button");
+            saveBtn.type = "button";
+            saveBtn.textContent = "Save source";
+            saveBtn.dataset.testid = `feed-save-${item.id}`;
+            saveBtn.addEventListener("click", async () => {
+              editErr.classList.add("hidden");
+              const body = { source: inp.value };
+              const pr = await fetch(`/api/feed/${item.id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json", ...bearerHeaders() },
+                body: JSON.stringify(body)
+              });
+              if (!pr.ok) {
+                const err = await pr.json().catch(() => ({}));
+                editErr.textContent = err.message || "Save failed";
+                editErr.classList.remove("hidden");
+                return;
+              }
+              await load();
+            });
+
+            const toggleBtn = document.createElement("button");
+            toggleBtn.type = "button";
+            toggleBtn.textContent = "Toggle";
+            toggleBtn.dataset.testid = `feed-toggle-${item.id}`;
+            toggleBtn.addEventListener("click", async () => {
+              await fetch(`/api/feed/${item.id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json", ...bearerHeaders() },
+                body: JSON.stringify({ enabled: !item.enabled })
+              });
+              await load();
+            });
+
+            tdAct.appendChild(saveBtn);
+            tdAct.appendChild(document.createTextNode(" "));
+            tdAct.appendChild(toggleBtn);
+          }
+
+          tr.appendChild(tdSrc);
+          tr.appendChild(tdEn);
+          tr.appendChild(tdAct);
+          tableBody.appendChild(tr);
+        });
+      }
+
+      document.getElementById("new-feed-submit").addEventListener("click", async () => {
+        const errEl = document.getElementById("feed-form-error");
+        errEl.classList.add("hidden");
+        const source = document.getElementById("new-feed-source").value;
+        const res = await fetch("/api/feed", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...bearerHeaders() },
+          body: JSON.stringify({ source })
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          errEl.textContent = body.message || "Unable to create feed";
+          errEl.classList.remove("hidden");
+          return;
+        }
+        document.getElementById("new-feed-source").value = "";
+        await load();
+      });
+
+      document.getElementById("refresh-btn").addEventListener("click", load);
+      load();
+    </script>
+  </body>
+</html>

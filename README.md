@@ -16,13 +16,15 @@ A **versioned, local-first analytics lab** (Express + static multi-page UI) shar
 npm install @venkatesulu-settybalija/analytics-demo-app
 ```
 
-Or from GitHub (no npm publish yet):
+Or from GitHub (pin a **tag** or **`main`**):
 
 ```json
 "dependencies": {
-  "@venkatesulu-settybalija/analytics-demo-app": "github:venkatesulu-settybalija/analytics-demo-app#v1.0.0"
+  "@venkatesulu-settybalija/analytics-demo-app": "github:venkatesulu-settybalija/analytics-demo-app#main"
 }
 ```
+
+Built **`dist/`** is committed so `npm install` from GitHub works without relying on `prepare` in every environment. After changing `src/`, run **`npm run build`** and commit `dist/` again.
 
 ## Run (CLI)
 

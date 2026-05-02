@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dashboard</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 24px; }
+      nav a { margin-right: 12px; }
+      .card { border: 1px solid #ddd; padding: 12px; margin: 10px 0; width: 260px; }
+      .controls { display: flex; flex-wrap: wrap; gap: 16px; margin: 12px 0; align-items: end; }
+      .controls label { display: flex; flex-direction: column; font-size: 13px; gap: 4px; }
+      .controls select { min-width: 160px; }
+      .chart-grid { margin-top: 12px; }
+      .bar-row {
+        display: flex;
+        gap: 6px;
+        align-items: end;
+      }
+      .bar-slot {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        width: 32px;
+      }
+      .bar {
+        width: 20px;
+        background: #3b82f6;
+      }
+      .bar-label {
+        font-size: 11px;
+        color: #555;
+        text-align: center;
+        max-width: 48px;
+        line-height: 1.15;
+      }
+      .hidden { display: none !important; }
+      .preset-panel {
+        border: 1px solid #e5e7eb;
+        padding: 12px;
+        margin: 16px 0;
+        max-width: 560px;
+        background: #fafafa;
+      }
+      .preset-panel h2 { margin: 0 0 10px; font-size: 16px; }
+      .preset-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+      .preset-row input[type="text"] { flex: 1; min-width: 160px; }
+      .err { color: #b42318; font-size: 14px; margin-top: 6px; }
+      svg.trend-svg { overflow: visible; }
+      svg.trend-svg polyline { stroke: #3b82f6; stroke-width: 2px; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+      svg.trend-svg circle { fill: #1d4ed8; stroke: white; stroke-width: 2px; }
+    </style>
+  </head>
+  <body>
+    <h1>Dashboard</h1>
+    <nav>
+      <a href="/">Login</a>
+      <a href="/feed.html">Feed Editor</a>
+      <a href="/explore.html">Explore</a>
+    </nav>
+
+    <section class="controls" data-testid="dashboard-controls">
+      <label>
+        Time window
+        <select id="dash-days" data-testid="dash-days">
+          <option value="7" selected>Last 7 days</option>
+          <option value="14">Last 14 days</option>
+          <option value="30">Last 30 days</option>
+        </select>
+      </label>
+      <label>
+        Granularity
+        <select id="dash-granularity" data-testid="dash-granularity">
+          <option value="day" selected>Day</option>
+          <option value="week">Week</option>
+        </select>
+      </label>
+      <label>
+        Chart type
+        <select id="dash-viz" data-testid="dash-viz">
+          <option value="bar" selected>Bar chart</option>
+          <option value="line">Line chart</option>
+        </select>
+      </label>
+      <button type="button" id="reload-summary" data-testid="dashboard-reload">Reload summary</button>
+      <button type="button" id="download-csv" data-testid="dashboard-download-csv">Download CSV</button>
+    </section>
+
+    <section class="preset-panel" data-testid="dashboard-preset-panel">
+      <h2>Saved views</h2>
+      <p class="muted" style="margin:0 0 8px;font-size:13px;color:#555;">
+        Store dashboard controls in this browser (Superset-style saved dashboards, without a server).
+      </p>
+      <div class="preset-row">
+        <label style="display:flex;flex-direction:column;font-size:13px;gap:4px;">
+          Name
+          <input type="text" id="preset-name" data-testid="dashboard-preset-name" placeholder="e.g. Weekly exec view" maxlength="64" />
+        </label>
+        <button type="button" id="preset-save" data-testid="dashboard-preset-save">Save view</button>
+      </div>
+      <div class="preset-row">
+        <label style="display:flex;flex-direction:column;font-size:13px;gap:4px;">
+          Load
+          <select id="preset-pick" data-testid="dashboard-preset-select">
+            <option value="">— pick a saved view —</option>
+          </select>
+        </label>
+        <button type="button" id="preset-load" data-testid="dashboard-preset-load">Apply</button>
+      </div>
+      <p id="preset-error" class="err hidden" data-testid="dashboard-preset-error"></p>
+    </section>
+
+    <section data-testid="dashboard-kpis">
+      <div class="card">Active Feeds: <span data-testid="kpi-active-feeds">-</span></div>
+      <div class="card">Total Events: <span data-testid="kpi-total-events">-</span></div>
+      <div class="card" data-testid="kpi-derived-formula-note">Derived: active feeds × 120 + 80</div>
+    </section>
+
+    <div class="chart-grid">
+      <div id="bar-wrap" data-testid="trend-chart" aria-label="Events trend bars">
+        <div class="bar-row" id="bar-row"></div>
+      </div>
+      <svg id="line-chart" class="trend-svg hidden" data-testid="trend-line-chart" width="480" height="160" aria-label="Events trend line"></svg>
+    </div>
+
+    <script>
+      function bearerHeaders() {
+        const token = localStorage.getItem("authToken");
+        return { Authorization: `Bearer ${token}` };
+      }
+
+      const PRESET_STORAGE_KEY = "analyticsLabDashboards";
+
+      let lastTrend = [];
+      let lastLabels = [];
+      let lastKpis = { activeFeeds: 0, totalEvents: 0 };
+
+      function vizMode() {
+        return document.getElementById("dash-viz").value;
+      }
+
+      function renderBars(trend, labels) {
+        const row = document.getElementById("bar-row");
+        row.innerHTML = "";
+        trend.forEach((point, idx) => {
+          const slot = document.createElement("div");
+          slot.className = "bar-slot";
+
+          const bar = document.createElement("div");
+          bar.className = "bar";
+          bar.style.height = `${point + 20}px`;
+          bar.setAttribute("data-testid", `trend-bar-${idx}`);
+          bar.setAttribute("data-value", String(point));
+
+          const lab = document.createElement("span");
+          lab.className = "bar-label";
+          lab.setAttribute("data-testid", `trend-bar-label-${idx}`);
+          lab.textContent = labels[idx] ?? `#${idx + 1}`;
+
+          slot.appendChild(bar);
+          slot.appendChild(lab);
+          row.appendChild(slot);
+        });
+      }
+
+      function renderLine(values, labels) {
+        const svg = document.getElementById("line-chart");
+        const w = svg.clientWidth || Number(svg.getAttribute("width")) || 480;
+        const h = Number(svg.getAttribute("height")) || 160;
+        svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+        svg.replaceChildren();
+
+        if (!values.length) return;
+
+        const pad = 24;
+        const minV = Math.min(...values);
+        const maxV = Math.max(...values);
+        const span = maxV === minV ? 1 : maxV - minV;
+        const innerW = w - pad * 2;
+        const innerH = h - pad * 2;
+
+        const coords = values.map((v, i) => {
+          const x = pad + (values.length <= 1 ? innerW / 2 : (innerW * i) / (values.length - 1));
+          const yn = innerH - ((v - minV) / span) * innerH;
+          const y = pad + yn;
+          return { x, y, v };
+        });
+
+        const pl = coords.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+        const poly = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+        poly.setAttribute("points", pl);
+        poly.setAttribute("data-testid", "trend-line-poly");
+
+        coords.forEach((p, idx) => {
+          const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+          circle.setAttribute("cx", String(p.x.toFixed(1)));
+          circle.setAttribute("cy", String(p.y.toFixed(1)));
+          circle.setAttribute("r", "4");
+          circle.setAttribute("data-testid", `trend-line-dot-${idx}`);
+          circle.setAttribute("data-value", String(p.v));
+          svg.appendChild(circle);
+        });
+
+        svg.appendChild(poly);
+
+        coords.forEach((p, idx) => {
+          const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+          const label = labels[idx] ?? String(idx + 1);
+          t.textContent = label;
+          t.setAttribute("x", String(p.x.toFixed(1)));
+          t.setAttribute("y", String(h - 6));
+          t.setAttribute("text-anchor", "middle");
+          t.setAttribute("font-size", "10");
+          t.setAttribute("fill", "#555");
+          t.setAttribute("data-testid", `trend-line-label-${idx}`);
+          svg.appendChild(t);
+        });
+      }
+
+      function escapeCsvCell(value) {
+        const s = String(value);
+        if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+        return s;
+      }
+
+      function buildDashboardCsv() {
+        const days = document.getElementById("dash-days").value;
+        const granularity = document.getElementById("dash-granularity").value;
+        const viz = vizMode();
+        const lines = ["kind,name,value"];
+        lines.push(`kpi,active_feeds,${lastKpis.activeFeeds}`);
+        lines.push(`kpi,total_events,${lastKpis.totalEvents}`);
+        lines.push(`config,days,${days}`);
+        lines.push(`config,granularity,${granularity}`);
+        lines.push(`config,viz,${viz}`);
+        for (let i = 0; i < lastTrend.length; i += 1) {
+          const label = lastLabels[i] ?? `bucket_${i + 1}`;
+          lines.push(`series,${escapeCsvCell(label)},${lastTrend[i]}`);
+        }
+        return lines.join("\n");
+      }
+
+      function triggerDownload(filename, text) {
+        const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.rel = "noopener";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      function readPresets() {
+        try {
+          const raw = localStorage.getItem(PRESET_STORAGE_KEY);
+          if (!raw) return [];
+          const parsed = JSON.parse(raw);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      }
+
+      function writePresets(list) {
+        localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(list));
+      }
+
+      function refreshPresetSelect() {
+        const sel = document.getElementById("preset-pick");
+        const current = sel.value;
+        const presets = readPresets().slice().sort((a, b) => a.name.localeCompare(b.name));
+        sel.replaceChildren();
+        const placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = "— pick a saved view —";
+        sel.appendChild(placeholder);
+        presets.forEach((p) => {
+          const opt = document.createElement("option");
+          opt.value = p.name;
+          opt.textContent = p.name;
+          sel.appendChild(opt);
+        });
+        if (current && presets.some((p) => p.name === current)) sel.value = current;
+      }
+
+      function showPresetErr(msg) {
+        const el = document.getElementById("preset-error");
+        el.textContent = msg;
+        el.classList.remove("hidden");
+      }
+
+      function hidePresetErr() {
+        document.getElementById("preset-error").classList.add("hidden");
+      }
+
+      function applyViz() {
+        const bars = document.getElementById("bar-wrap");
+        const line = document.getElementById("line-chart");
+        if (vizMode() === "line") {
+          bars.classList.add("hidden");
+          line.classList.remove("hidden");
+          renderLine(lastTrend, lastLabels);
+        } else {
+          line.classList.add("hidden");
+          bars.classList.remove("hidden");
+          renderBars(lastTrend, lastLabels);
+        }
+      }
+
+      async function loadSummary() {
+        const days = document.getElementById("dash-days").value;
+        const granularity = document.getElementById("dash-granularity").value;
+        const qs = new URLSearchParams({ days: String(days), granularity: String(granularity) }).toString();
+        const res = await fetch(`/api/dashboard/summary?${qs}`, { headers: bearerHeaders() });
+        const data = await res.json();
+        document.querySelector("[data-testid='kpi-active-feeds']").textContent = String(data.kpis.activeFeeds);
+        document.querySelector("[data-testid='kpi-total-events']").textContent = String(data.kpis.totalEvents);
+        lastKpis = {
+          activeFeeds: data.kpis.activeFeeds,
+          totalEvents: data.kpis.totalEvents,
+        };
+        lastTrend = data.trend.slice();
+        lastLabels = Array.isArray(data.timeRange?.labels) ? data.timeRange.labels.slice() : [];
+        applyViz();
+      }
+
+      document.getElementById("download-csv").addEventListener("click", () => {
+        const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+        triggerDownload(`analytics-lab-dashboard-${stamp}.csv`, buildDashboardCsv());
+      });
+
+      document.getElementById("preset-save").addEventListener("click", () => {
+        hidePresetErr();
+        const name = document.getElementById("preset-name").value.trim();
+        if (!name.length) {
+          showPresetErr("Name is required");
+          return;
+        }
+        const entry = {
+          name,
+          days: document.getElementById("dash-days").value,
+          granularity: document.getElementById("dash-granularity").value,
+          viz: document.getElementById("dash-viz").value,
+          savedAt: new Date().toISOString(),
+        };
+        const next = readPresets().filter((p) => p.name !== name);
+        next.push(entry);
+        writePresets(next);
+        refreshPresetSelect();
+        document.getElementById("preset-pick").value = name;
+      });
+
+      document.getElementById("preset-load").addEventListener("click", () => {
+        hidePresetErr();
+        const name = document.getElementById("preset-pick").value;
+        if (!name) {
+          showPresetErr("Pick a saved view first");
+          return;
+        }
+        const found = readPresets().find((p) => p.name === name);
+        if (!found) {
+          showPresetErr("Saved view not found");
+          refreshPresetSelect();
+          return;
+        }
+        document.getElementById("dash-days").value = found.days;
+        document.getElementById("dash-granularity").value = found.granularity;
+        document.getElementById("dash-viz").value = found.viz;
+        loadSummary();
+      });
+
+      document.getElementById("reload-summary").addEventListener("click", loadSummary);
+      document.getElementById("dash-days").addEventListener("change", loadSummary);
+      document.getElementById("dash-granularity").addEventListener("change", loadSummary);
+      document.getElementById("dash-viz").addEventListener("change", applyViz);
+      window.addEventListener("resize", () => {
+        if (vizMode() === "line") renderLine(lastTrend, lastLabels);
+      });
+      refreshPresetSelect();
+      loadSummary();
+    </script>
+  </body>
+</html>

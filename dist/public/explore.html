@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Explore &amp; SQL Lab</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 24px; }
+      nav a { margin-right: 12px; }
+      .card { border: 1px solid #ddd; padding: 12px; margin: 10px 0; max-width: 720px; }
+      .card h3 { margin: 0 0 8px; font-size: 16px; }
+      .muted { color: #555; font-size: 14px; margin: 0 0 8px; }
+      table { border-collapse: collapse; margin-top: 12px; }
+      th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; }
+      th { background: #f7f7f7; }
+      textarea { width: 100%; min-height: 100px; font-family: ui-monospace, monospace; font-size: 13px; }
+      .err { color: #b42318; margin-top: 8px; }
+      .pill { display: inline-block; background: #eef2ff; color: #312e81; padding: 2px 8px; border-radius: 999px; font-size: 12px; margin-right: 6px; }
+    </style>
+  </head>
+  <body>
+    <h1>Explore</h1>
+    <nav>
+      <a href="/">Login</a>
+      <a href="/feed.html">Feed Editor</a>
+      <a href="/dashboard.html">Dashboard</a>
+    </nav>
+
+    <section class="card" data-testid="datasets-panel">
+      <h2>Datasets</h2>
+      <p class="muted">Lightweight catalogue (similar to Superset datasets / physical vs virtual).</p>
+      <div id="datasets-root" data-testid="datasets-list"></div>
+    </section>
+
+    <section class="card">
+      <h2>SQL Lab <span class="pill">lite</span></h2>
+      <p class="muted">Read-only <code>SELECT</code> on <code>feeds</code> only — no multi-statements.</p>
+      <textarea id="sqllab-query" data-testid="sqllab-query">SELECT source, enabled FROM feeds</textarea>
+      <button type="button" id="sqllab-run" data-testid="sqllab-run">Run</button>
+      <p id="sqllab-error" class="err hidden" data-testid="sqllab-error"></p>
+      <div id="sqllab-table-wrap">
+        <table class="hidden" id="sqllab-table" data-testid="sqllab-result">
+          <thead id="sqllab-thead"></thead>
+          <tbody id="sqllab-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <script>
+      function bearerHeaders() {
+        const token = localStorage.getItem("authToken");
+        return { Authorization: `Bearer ${token}` };
+      }
+
+      async function loadDatasets() {
+        const res = await fetch("/api/datasets", { headers: bearerHeaders() });
+        const data = await res.json().catch(() => ({}));
+        const root = document.getElementById("datasets-root");
+        root.replaceChildren();
+        const items = data.items || [];
+        items.forEach((ds) => {
+          const wrap = document.createElement("article");
+          wrap.className = "card";
+          wrap.dataset.testid = `dataset-${ds.id}`;
+          const title = document.createElement("h3");
+          title.textContent = `${ds.name} (${ds.kind})`;
+          const meta = document.createElement("p");
+          meta.className = "muted";
+          meta.textContent = `${ds.description} ~${ds.rowCountEstimate} rows est.`;
+          const cols = document.createElement("p");
+          cols.textContent =
+            "Columns: " + (ds.columns || []).map((c) => `${c.name}: ${c.type}`).join(", ");
+          wrap.appendChild(title);
+          wrap.appendChild(meta);
+          wrap.appendChild(cols);
+          root.appendChild(wrap);
+        });
+      }
+
+      function renderSqlResult(columns, rows) {
+        const table = document.getElementById("sqllab-table");
+        const thead = document.getElementById("sqllab-thead");
+        const tbody = document.getElementById("sqllab-tbody");
+        thead.replaceChildren();
+        tbody.replaceChildren();
+
+        const trh = document.createElement("tr");
+        columns.forEach((c, i) => {
+          const th = document.createElement("th");
+          th.textContent = c.name;
+          th.dataset.testid = `sqllab-col-${i}`;
+          trh.appendChild(th);
+        });
+        thead.appendChild(trh);
+
+        rows.forEach((row, ri) => {
+          const tr = document.createElement("tr");
+          tr.dataset.testid = `sqllab-row-${ri}`;
+          columns.forEach((c, ci) => {
+            const td = document.createElement("td");
+            const v = row[c.name];
+            td.textContent = v === undefined || v === null ? "" : String(v);
+            td.dataset.testid = `sqllab-cell-${ri}-${ci}`;
+            tr.appendChild(td);
+          });
+          tbody.appendChild(tr);
+        });
+        table.classList.remove("hidden");
+      }
+
+      document.getElementById("sqllab-run").addEventListener("click", async () => {
+        const errEl = document.getElementById("sqllab-error");
+        errEl.classList.add("hidden");
+        document.getElementById("sqllab-table").classList.add("hidden");
+        const q = document.getElementById("sqllab-query").value;
+        const res = await fetch("/api/sqllab/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...bearerHeaders() },
+          body: JSON.stringify({ query: q }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          errEl.textContent = body.message || "Query failed";
+          errEl.classList.remove("hidden");
+          return;
+        }
+        const data = await res.json();
+        renderSqlResult(data.columns || [], data.rows || []);
+      });
+
+      loadDatasets();
+    </script>
+  </body>
+</html>

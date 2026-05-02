@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Analytics Lab - Login</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 24px; }
+      nav a { margin-right: 12px; }
+      .hidden { display: none; }
+      label, button { display: block; margin-top: 10px; }
+    </style>
+  </head>
+  <body>
+    <h1>Analytics Lab</h1>
+    <nav>
+      <a href="/feed.html">Feed Editor</a>
+      <a href="/dashboard.html">Dashboard</a>
+      <a href="/explore.html">Explore</a>
+    </nav>
+    <form id="login-form">
+      <label>Username <input id="username" value="demo" /></label>
+      <label>Password <input id="password" type="password" value="demo123" /></label>
+      <button id="login-btn" type="submit">Login</button>
+    </form>
+    <p id="status" class="hidden" data-testid="login-status"></p>
+    <script>
+      const form = document.getElementById("login-form");
+      const status = document.getElementById("status");
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const username = document.getElementById("username").value;
+        const password = document.getElementById("password").value;
+        const res = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password })
+        });
+        if (!res.ok) {
+          status.textContent = "Login failed";
+          status.classList.remove("hidden");
+          return;
+        }
+        const data = await res.json();
+        localStorage.setItem("authToken", data.token);
+        localStorage.setItem("authRole", data.role ?? "viewer");
+        status.textContent = "Login success";
+        status.classList.remove("hidden");
+      });
+    </script>
+  </body>
+</html>
