@@ -18,7 +18,7 @@ Delete the in-repo `app/` folder (or stop tracking it) once the package is wired
 
 ```json
 "dependencies": {
-  "@venkatesulu-settybalija/analytics-demo-app": "github:venkatesulu-settybalija/analytics-demo-app#v1.0.0"
+  "@venkatesulu-settybalija/analytics-demo-app": "github:venkatesulu-settybalija/analytics-demo-app#v1.0.1"
 }
 ```
 

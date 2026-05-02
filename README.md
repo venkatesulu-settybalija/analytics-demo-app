@@ -20,7 +20,7 @@ Or from GitHub (pin a **tag** or **`main`**):
 
 ```json
 "dependencies": {
-  "@venkatesulu-settybalija/analytics-demo-app": "github:venkatesulu-settybalija/analytics-demo-app#main"
+  "@venkatesulu-settybalija/analytics-demo-app": "github:venkatesulu-settybalija/analytics-demo-app#v1.0.1"
 }
 ```
 
